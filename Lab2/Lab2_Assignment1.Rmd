@@ -1,0 +1,209 @@
+---
+title: "Lab2"
+author: "Pontus Olsson"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r packages, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(caret)
+library(glmnet)
+library(knitr)
+```
+
+# Assignment 1 Explicit regularization
+
+This assignment contains all the answers for assignemnt 1, which contains exercises on explicit regularizations.
+
+```{r read data_1, include = FALSE}
+tecator <- read.csv("C:/Users/Pontus/Desktop/tecator.csv")
+tecator <- tecator %>% select(-Sample)
+
+N <- nrow(tecator)
+set.seed(12345)
+id <- sample(x = seq_len(N), size = floor(N * 0.5))
+train <- tecator[-id,]
+test <- tecator[id, ]
+```
+
+## 1. Creating a model without any shrinkage functions
+
+To start this assignment we assume that the level of fat is dependent on 100 channel spectrum of of absorbance records.
+
+We can express it as a linear regression model like:
+$$
+Y_i = \beta_0 + \beta_1X_1 + \beta_2X_2+ \beta_3X_3 + ... + \beta_{100}X_{100} + \epsilon_i
+$$
+
+While the output of this model is atleast 100 coefficients, which can be hard to show all at once, we 
+
+```{r creating the linear model, echo = FALSE}
+model_formula <- paste0("Fat~", paste(paste0("Channel", 1:100), collapse = "+")) %>% as.formula()
+linear <- lm(formula = model_formula, data = train)
+kable(head(summary(linear)$coefficients[c(1:4, nrow(summary(linear)$coefficients)), ]), digits = 2, caption = "Output of linear model: B0, B1, B2, B3, ...,  B100")
+```
+
+If we look at the output in table 1, we see there are many insignificant coefficients. While $t_{Statistic}$ are not a good measurement of parameter fitness because of confounding effects, it indicates that we have to many insignificant parameters in our model.
+
+Another way to show this is by having a general overlook and comparing model output on testdata.
+
+```{r linear model overlook, echo = FALSE}
+yhat <- predict(linear, newdata = train)
+y <- train$Fat
+train_mse <- sum((y-yhat)^2)/nrow(train)
+train_r2 <- 1 - sum((y-yhat)^2)/sum((y-mean(y))^2)
+
+yhat <- predict(linear, newdata = test)
+y <- test$Fat
+test_r2 <- sum((yhat - mean(y))^2)/sum((y-mean(y))^2)
+test_mse <- sum((y-yhat)^2)/nrow(test)
+null_mse <- sum((y-mean(y))^2)/nrow(test)
+
+
+output <- data.frame(param = nrow(summary(linear)$coefficients),
+           train_mse, train_r2,
+           test_mse, test_r2, null_mse)
+colnames(output) <- c("# parameters", "Train MSE", "Train $R^^2$", "Test MSE", "Test $R^2$", "Null MSE (test)")
+kable(output, digits = 4, caption = "Linear model overlook")
+```
+
+
+From table 2, we can see that the model is extremely overfitted. There are 100 parameters and there are 108 observations. There are around the same amount of parameters as observations. The descipency in the $R^2$ measurement between training data and test data is a good showcase of this. The $R^2$ value for the training data is almost 1, while the $R^2$ for the testdata is higher than 1, which means that the estimated sum of squares ($ESS=\sum_{i=1}^n(\hat y-\bar y)^2$) is higher than the total variation in the data $TSS=\sum_{i=1}^n(y -\bar y)^2$. This is, in a nonacademic of expressing it, terrible since it means that a model without _any_ parameters has better accuracy than the model. We can see this comparing the Null MSE with the test MSE.
+
+## 2. Shrinkage with LASSO
+
+There are many ways to reduce the overfitting in this linear model. One way is by penalizing complexity by introducing a cost function within the model.
+
+From MLFC page 110:
+"The penalty cost $\vert\vert \theta\vert\vert_1$ is added to the cost function. [...] The regularised cost function for linear regression with squared error loss then becomes: "
+$$
+ \hat{\mathbf{\theta}} =\arg \min_{\theta}
+ \frac{1}{n} \left| \left|
+ \mathbf{X\theta-y}
+ \right| \right|^2_2 + \lambda\left| \left|
+ \mathbf{\theta}
+ \right| \right|^2_2
+$$
+
+
+or from James, G., Witten, D., Hastie, T., & Tibshirani, R. (2021). An introduction to statistical learning: With applications in R (2nd ed.) page 241
+
+$$
+\arg\min f(\beta) = \sum_{i=1}^n \left( y_i - \beta_0 - \sum_{j=1}^p \beta_j x_{i,j} \right)^2 + \lambda\sum_{j=1}^p \left| \beta_j \right|,
+\lambda \geq0
+$$
+
+Depending on what literature you're reading, basically they describe the same thing though. The first definition just does it in a more optimised way.
+
+## 3. Plotting how LASSA coefficients depends on lambda
+
+By plotting the coefficients from different iterations of $\lambda$, we can see how coefficients depend on the log penalty factor.
+
+```{r Lasso, echo = FALSE}
+# Read page 17 and onwards on lecture 2d
+covariates <- train[, paste0("Channel", 1:100)]
+response <- train[, "Fat"]
+
+
+# The lambda argument in this function would control the range between lambda. Right now, we're going to ignore it, even though this is in practice probably not a good idea.
+modelLasso <- glmnet(x = as.matrix(covariates), y = response, alpha = 1, family = "gaussian")
+plot(modelLasso, xvar="lambda", label = TRUE, sub = "Figure 1: Coefficients and lambda, LASSO")
+```
+
+The $Y$ axis shows the changes in coefficient, the lower $X$-axis shows the $-\log(\lambda)$ penalty factor and the upper $X$-axis shows the number of parameters in the model.
+
+If we look at the plot, we can see that if we choose a value between $-\log(\lambda) = 0$ and approximately $-\log(\lambda) = 0.5$ it account for 3 variables. A more precise way to show this is by looking at the object:
+
+```{r LASSO inspect object, echo = FALSE}
+inspect <- as.matrix(modelLasso$beta)
+colnames(inspect) <- round(-log(modelLasso[["lambda"]]), digits = 3)
+
+valid_col <- which(sapply(seq_len(ncol(inspect)), FUN = function(i){
+  sum(inspect[, i] != 0) == 3
+}))
+
+inspect <- inspect[, c(min(valid_col) - 1, valid_col)]
+
+valid_rows <- sapply(seq_len(nrow(inspect)), FUN = function(i){
+  ifelse(all(inspect[i, ] == 0), yes = FALSE, no = TRUE)
+}, simplify = TRUE)
+inspect <- inspect[valid_rows, ]
+
+kable(inspect, caption = "Coefficients through lambda iterations")
+
+```
+
+
+## 4. Plotting how RIDGE coefficients depends on lambda
+
+We do the same as figure 1, but on a Ridge regression.
+
+```{r Ridge, echo = FALSE}
+# The lambda argument in this function would control the range between lambda. Right now, we're going to ignore it, even though this is in practice probably not a good idea.
+modelRidge <- glmnet(x = as.matrix(covariates), y = response, alpha = 0, family = "gaussian")
+plot(modelRidge, xvar="lambda", label = TRUE, sub = "Figure 2: Coefficients and lambda, Ridge")
+```
+
+The plots differ because a squared loss penalizes deviations less aggressively near zero, causing parameters to shrink more slowly compared to an absolute loss.
+
+MFLC page 110:
+"As for $L^2$ regularisation, the regularisation parameter $\lambda$ has to be chosen by the user and has a similar meaning: $\lambda = 0$ gives the ordinary least squares solution and $\lambda\rightarrow \infty$ gives $\hat \theta=0$. Between these extremes, however, $L^1$ and $L^2$ tend to give different solution. Whereas $L^2$ regularisations pushes all parameters towards small values (but not necerssarily exactly zero), $L^1$ tends to favour so-called sparse solutions, where only a few of the parameters are non-zero, and the rest are exactely zero. Thus $L^1$ regularisation can effectively "switch off" some inputs (by setting the corresponding parameter $theta_k$ to zero), and it can therefore be used as an input (or feature) selection method."
+
+## 5. Cross-validation to choose lambda
+
+By using cross-validation through $K$-fold, one can find the optimal $\lambda$. $K$-fold is built into the function _cv.glmnet_. The default argument for the number of folds are 10. The result of the cross-validation is shown in figure 3.
+
+```{r plot optimal lambda, echo = FALSE}
+test_channel <- test[, paste0("Channel", 1:100)] %>% as.matrix()
+
+set.seed(12345)
+cv.out <- cv.glmnet(x = as.matrix(covariates), y = response, alpha = 1, family = "gaussian")
+plot(cv.out, sub = "Figure 3: Best lambda from k-fold validation")
+```
+
+Figure 3 shows that the lambda with the lowest $MSE$ is when $\lambda =$ `r cv.out$lambda.min` or $-\log(\lambda) =$ `r -log(cv.out$lambda.min)`. We do however see that most penalties after 2 do not significantly differ from the actual optimal value.
+
+Table 4 shows the coefficients from the model with the lowest $MSE$ in the $K$-fold cross-validation.
+
+```{r Table 4, echo = FALSE}
+output <- coef(cv.out, s = "lambda.min")
+kable(output[output[, 1] != 0, ], col.names = "Coefficient", caption  = "Model coefficients when $\\lambda$ = -2.784")
+```
+
+As we commented on in figure 3. The $MSE$ stands still after $-\log(\lambda) \approx 2$, the interval for $MSE$ still catches most of the values after. We can hence assume that $\log(\lambda)=4$ do not significantly different from the optimal $\lambda$.
+
+This is even shown by comparing "the optimal" $\lambda$ to $\log(\lambda)=4$, which is done in table 5.
+
+```{r Table 5, echo = FALSE}
+bestlam <- cv.out$lambda.min
+yhat <- predict(modelLasso, s = bestlam,
+                      newx = test_channel)
+opt_mse <- mean((yhat - test$Fat)^2)
+opt_r2 <- sum((yhat - mean(y))^2)/sum((y-mean(y))^2)
+
+yhat <- predict(modelLasso, s = exp(-4),
+                      newx = test_channel)
+mse_4 <- mean((yhat - test$Fat)^2)
+r2_4 <- sum((yhat - mean(y))^2)/sum((y-mean(y))^2)
+
+output <- data.frame(Opti = c(opt_mse, opt_r2),
+                     lam4 = c(mse_4, r2_4), row.names =  c("MSE", "$R^2$"))
+kable(x = output, col.names = c("Cross validated $\\lambda$", "$\\log(\\lambda = -4)$"), digits = 2)
+```
+
+This shows that, despite $\lambda = -2.784$ being the value with the lowest $MSE$ in the cross-validation, it does not necessarily mean that the same applies to the test data.
+
+We can however conclude that we have significantly improved the model compared to the one shown in exercise 1. The prediction improvement has gone from $0$ on actual data to $\approx0.61$. Evaluating model performance is always relative the goals that the model is trying to perform and previous models, by comparing the prediction values with its actual value we can however get a hint what improvements we could do in our model.
+
+```{r last assignment 1 plot, echo = FALSE}
+yhat <- predict(modelLasso, s = bestlam,
+                      newx = test_channel)
+
+ggplot(mapping = aes(y = test$Fat, x = yhat)) + geom_point(aes(col = "Observation")) + xlab("Predicted value") + ylab("True value") + labs(caption = "Figure 4: Comparison between predicted value and true value for test data") + geom_abline(aes(col = "Perfect fit", slope = 1, intercept = 0), linewidth = 0.7) + xlim(0, 55) + ylim(0, 55) + theme_bw() + scale_color_manual(values = c("Observation" = "darkblue", "Perfect fit" = "darkred"))
+```
+
+Figure 4 shows that there is at least a somewhat linear correlation between the predicted value and it's actual shown value. This is a huge improvement compared to the model that was shown in exercise 1. However, the predicted values have a hard time when it comes to lower true values, which shows with its higher variance, the model also tends to underestimate several true values, for example, values around and higher than $45$ can be. All of this could indicate bias in the model.
+
+The model works as a draft, but needs some improvements if it tries to predict the levels of fat with high accuracy.
