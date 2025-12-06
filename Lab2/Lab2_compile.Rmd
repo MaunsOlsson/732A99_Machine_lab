@@ -703,13 +703,7 @@ According to the MLFC book page 101-102, imbalanced data can be handled either b
 
 # Appendix
 
-Assignment 1 and question 1 in assignment 4 was done by Pontus Olsson.
-
-Assignment 2 and question 2 in assignment 4 was done by Max Goldbeck-Löwe.
-
-Assignment 3 and question 3 in assignemtn 4 was done by Paripurna Bawonoputro.
-
-## Appendix 1
+## Appendix 1 Code for assignment 1
 ```{r, eval = FALSE}
 # Assignment 1, done by Pontus Olsson
 
@@ -815,7 +809,7 @@ ggplot(mapping = aes(y = test$Fat, x = yhat)) + geom_point(aes(col = "Observatio
 
 \clearpage
 
-## Appendix 2
+## Appendix 2 Code for assignment 2
 ```{r, eval = FALSE}
 #Assignment 2, done by Max Goldbeck-Löwe
 
@@ -984,7 +978,7 @@ abline(0, 1, lty = 3, col = "grey50")
 
 \clearpage
 
-## Appendix 3
+## Appendix 3 Code for assignment 3
 
 First we have to load the data from communities.csv
 
@@ -1214,13 +1208,10 @@ result <- optim(par = init_theta, fn = cost_with_tracking, method = "BFGS", cont
 Plot the errors
 
 ```{r Plot errors vs iteration appendix, eval=FALSE}
-
-
 optimal_iter <- which.min(test_errors)
 
 start <- 1         
 end   <- 5000  
-
 
 idx <- start:min(end, length(train_errors))
 
@@ -1244,14 +1235,15 @@ if (optimal_iter >= start && optimal_iter <= end) {
   points(optimal_iter, test_errors[optimal_iter],
          col = "darkgreen", pch = 19, cex = 1.1)
 }
-
-
 ```
 
 Find optimal iteration with minumum error
 
 ```{r Find optimal iteration appendix, eval=FALSE}
-
 cat("Optimal iteration:", optimal_iter, "Test error:", test_errors[optimal_iter], "\n")
-
 ```
+
+
+## Appendix 4 Statement of contribution
+Assignment 1 was contributed by Pontus. Assignment 2 was contributed by Max. Assignment 3 was contributed by Paripurna. Assignment 4 was distributed to the members with Pontus contributed to the first question, Max to the second and Paripurna to the third. Results from all assignments have been discussed afterwards between
+Pontus, Max and Paripurna then the group report was compiled by Pontus based on this discussion.
