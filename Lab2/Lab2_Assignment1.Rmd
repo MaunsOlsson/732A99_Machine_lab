@@ -15,7 +15,7 @@ library(knitr)
 
 # Assignment 1 Explicit regularization
 
-This assignment contains all the answers for assignemnt 1, which contains exercises on explicit regularizations.
+This assignment contains all the answers for assignment 1, which contains exercises on explicit regularizations.
 
 ```{r read data_1, include = FALSE}
 tecator <- read.csv("C:/Users/Pontus/Desktop/tecator.csv")
@@ -207,3 +207,14 @@ ggplot(mapping = aes(y = test$Fat, x = yhat)) + geom_point(aes(col = "Observatio
 Figure 4 shows that there is at least a somewhat linear correlation between the predicted value and it's actual shown value. This is a huge improvement compared to the model that was shown in exercise 1. However, the predicted values have a hard time when it comes to lower true values, which shows with its higher variance, the model also tends to underestimate several true values, for example, values around and higher than $45$ can be. All of this could indicate bias in the model.
 
 The model works as a draft, but needs some improvements if it tries to predict the levels of fat with high accuracy.
+
+# Assignment 4
+
+## 1. Practical approach for decreasing expected new data error
+
+The book points out how models with low error in its training can fail to adapt to new data. You can estimate the error from new data by using some of the data for model testing (either through hold out method or K-fold). With this estimation the model designer can adjust its parameter so that both the generalization gap is small and the expected training error is high. In other words, we choose the one with the lowest estimated new data error. Another way is to increase the amount of observations since that decreases the generalization gap.
+
+Page 66 to 71 and Page 76 to 77.
+
+
+
