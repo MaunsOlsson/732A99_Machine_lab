@@ -5,27 +5,313 @@ date: "`r Sys.Date()`"
 output: pdf_document
 ---
 
+# Assignment 1. Theory
 
-```{r import data, include = FALSE}
-set.seed(1234567890)
+## 1. What is the kernel trick?
+
+A kernel is a function that takes two arguments from the same space and returns a scalar. By using a kernel as our input, we can compute the inner product between non-linear transformations ($\mathbf{\phi(x)}^t\mathbf{\phi(x)}$) without explicitly computing the transformation ($\mathbf{\phi(x)}$).
+
+This is called the kernel trick, it allows the user to increase the amount of features in our model without designing the feature space.
+(MLFC p.193-195)
+
+## 2. What is the purpose of C
+
+$C$ is in a support vector a regularizing parameter. It's purpose is to penilize insignificant features in the model. 
+(MLFC p.193-195)
+
+[Comment: Double check this. This is just a scim-through]
+
+# Assignment 2 Kernel Methods
+
+In this assignment you're suppose to predict the air temperature for an arbitrary date for an arbitrary weather station for every other hour between 04:00 to 24:00.
+
+We choose to predict the temperature at station 96350 (in the city of _Västerås_, noted as one of [the ugliest cities in Sweden](https://www.sverigesradio.se/artikel/6914211)).
+
+A gaussian kernel were created for each input (date, time and distance) to calculate the distance. The kernel used is the following:
+
+$$
+\mathbb{K}(\mathbf{x, x'})=\text{exp}\left(-\frac{
+\vert\vert
+\mathbf{x, x'}
+\vert\vert^2_2
+}{2\mathrm{l}^2}\right)
+$$
+where $\mathrm{l}$ is a parameter (MLFC p.195,207).
+
+Out of these kernels to one kernel which is used as a weight.
+$$
+\hat y = \frac{ \sum_{i=1}^n \mathbb{K}_i \times y_i}{\sum_{i=1}^n \mathbb{K}_i}
+$$
+
+```{r libraries, include = FALSE}
 library(geosphere)
 library(knitr)
+library(ggplot2)
+library(lubridate)
+```
+```{r import data, include = FALSE}
+set.seed(1234567890) # this seed does nothing currently
+# but they included it in the template code, so what the hell
 stations <- read.csv("stations.csv", fileEncoding = "latin1")
 temps <- read.csv("temps50k.csv")
 ```
-
-
-```{r, include = FALSE}
+```{r transform data, include = FALSE}
+# Station Västerås 2016-05-19
 st <- merge(stations,temps,by="station_number")
-h_distance <- distHaversine(c())
-# These three values are up to the students
-h_date <-
-h_time <-
-a <- 58.4274 # The point to predict (up to the students)
-b <- 14.826
-date <- "2013-11-04" # The date to predict (up to the students)
-times <- c("04:00:00", "06:00:00", ..., "24:00:00")
+
+a <- 16.6326 # longitude points of the city in Västerås
+b <- 59.5976 # latitude
+date <- "2015-05-19" # date that is used
+times <- paste0(sprintf(fmt = "%02d", seq(from = 4, to = 24, by = 2)), ":00:00")
+
+st <- st[as.Date(st$date) < "2015-05-19", ]
+
+dist <- sapply(X = 1:nrow(st), FUN = function(i){
+  distHaversine(c(a, b), c(st$longitude[i], st$latitude[i]))
+})
+
+day_diff <- sapply(X = 1:nrow(st), FUN = function(i){
+  abs(as.POSIXlt(st$date[i])$yday - as.POSIXlt(date)$yday)
+})
+
+hour_diff <- sapply(X = 1:length(times), FUN = function(i){
+  abs(difftime(c(paste0(c("2000-01-01 "), st$time)), c(paste0(c("2000-01-01 "), times[i])), units = "hour"))
+})
+```
+```{r select kernel value, include = FALSE}
+
+# distance plays way less of a role
+h_distance <- 1000
+# season plays a important role since days in winter are often colder than summers
+h_date <- 2
+# nighttime plays some role in the model
+h_time <- 2
+
 temp <- vector(length=length(times))
+
+
+k_dist <- exp(-dist^2/(2*h_distance^2))
+k_date <- exp(-day_diff^2/(2*h_date^2))
+k_time <- exp(-hour_diff^2/(2*h_time^2))
+```
+
+The hyperparameter were used for each specific variable.
+Distance has a $\mathrm{l}$ = ``r h_distance``.
+Date has a $\mathrm{l}$ = ``r h_date``.
+Time has a $\mathrm{l}$ = ``r h_time``.
+
+Date should be high priority since seasons, no matter the place or time, have a high correlation with the temperature.
+Time becomes relevant to measure the variation in temperature within a single day.
+Distance is the variable with the most variance, but the least effect on the temperature, hence the higher value.
+
+The first kernel used is a sum out of all kernels.
+$$
+\mathbb{K} = \mathbb{K}_{\text{Distance}} + \mathbb{K}_{\text{Date}} + \mathbb{K}_{\text{Time}}
+$$
+
+The predicted value with the kernel is shown in figure 1.
+
+```{r kernel 1, echo = FALSE}
+K <- k_dist+k_date+k_time
+
+temp <- sapply(X = 1:ncol(K), FUN = function(i){
+  sum(K[, i]*st$air_temperature)/sum(K[, i])}
+  )
+
+
+ggplot(mapping = aes(y = temp, x = seq(from = 4, to = 24, by = 2))) + geom_line(linewidth = 1, col = "darkred") + theme_bw() + xlab("Hour") + geom_point(col = "darkblue", size = 2) + ylab("Estimated temperature") + labs(caption = "Figure 1: Summed kernel")
+# aggregate(st$air_temperature, by = list(substring(st$time, 1, 2)), FUN = mean)
+
+# Answer, we assume independence between variables
+```
+
+The predictions do not reflect the temperature for a day in middle of May. This is only slightly higher than the mean of all the measurements through out the year and through out the country, which are shown in table 1.
+
+```{r table 1, echo = FALSE}
+mean_values <- aggregate(st$air_temperature, by = list(substring(st$time, 1, 2)), FUN = mean)
+
+output <- cbind(mean_values[1:6, ],
+                mean_values[7:12, ],
+                mean_values[13:18, ],
+                mean_values[19:24, ])
+colnames(output) <- rep(c("Hour", "Temperature"), times = 4)
+
+kable(output, caption = "Mean value for all weather measurements", align = "c")
+```
+
+The second kernel used is a product out of all kernels.
+$$
+\mathbb{K} = \mathbb{K}_{\text{Distance}}
+\times
+\mathbb{K}_{\text{Date}}
+\times
+\mathbb{K}_{\text{Time}}
+$$
+
+The predicted value with the kernel is shown in figure 2.
+
+```{r kernel 2, echo = FALSE}
+K <- k_dist*k_date*k_time
+
+temp <- sapply(X = 1:ncol(K), FUN = function(i){
+  sum(K[, i]*st$air_temperature)/sum(K[, i])}
+  )
+
+
 # Students’ code here
-plot(temp, type="o")
+ggplot(mapping = aes(y = temp, x = seq(from = 4, to = 24, by = 2))) + geom_line(linewidth = 1, col = "darkred") + theme_bw() + xlab("Hour") + geom_point(col = "darkblue", size = 2) + ylab("Estimated temperature") + labs(caption = "Figure 2: Product of kernel")
+# Show https://www.vadret1.com/europe/sweden/vastmanland/vasteras?page=past-weather#day=19&month=5
+# st[st$station_name == "Västerås" & month(st$date) == 5, c("station_name", "latitude", "longitude", "date", "time", "air_temperature")]
+# 
+# 
+# st$air_temperature[st$station_name == "Västerås" & month(st$date) == 5]
+# 
+# # Show https://www.vadret1.com/europe/sweden/vastmanland/vasteras?page=past-weather#day=19&month=5
+# aggregate(st$air_temperature[st$station_name == "Västerås" & month(st$date) == 5], by = list(substring(st$time[st$station_name == "Västerås" & month(st$date) == 5], 1, 2)), FUN = mean)
+```
+
+The predictions reflect much better than the actual in the area than the previous kernel. This is shown in figure 2. The reason for this is that, since it is a summed kernel, an observation that is in winter can still be weighted in only because it is - for example - near the predicted hour. In the kernel that uses product, if value is 0, then it is not weighted in.
+
+```{r table 2, echo = FALSE}
+lat_min <- 59.28
+lat_max <- 59.80
+lon_min <- 15.80
+lon_max <- 17.26
+
+inside <- function(lat, lon) {
+  lat >= lat_min & lat <= lat_max &
+  lon >= lon_min & lon <= lon_max
+}
+
+lon <- st$longitude
+lat <- st$latitude
+
+mean_values <- aggregate(st$air_temperature[inside(lat, lon) & month(st$date) == 5], by = list(substring(st$time[inside(lat, lon) & month(st$date) == 5], 1, 2)), FUN = mean)
+
+output <- cbind(mean_values[1:6, ],
+                mean_values[7:12, ],
+                mean_values[13:18, ],
+                mean_values[19:24, ])
+colnames(output) <- rep(c("Hour", "Temperature"), times = 3)
+
+kable(output, caption = "Mean value for a day, areas around Västerås, May", align = "c")
+```
+
+\clearpage
+
+## Appendix Assignment 2
+```{r, eval=FALSE}
+# Read libraries
+library(geosphere)
+library(knitr)
+library(ggplot2)
+library(lubridate)
+
+# Read data ####
+stations <- read.csv("stations.csv", fileEncoding = "latin1")
+temps <- read.csv("temps50k.csv")
+
+# Predictions values and merging data ####
+# Station Västerås 2016-05-19
+st <- merge(stations,temps,by="station_number")
+
+a <- 16.6326 # longitude points of the city in Västerås
+b <- 59.5976 # latitude
+date <- "2015-05-19" # date that is used
+times <- paste0(sprintf(fmt = "%02d", seq(from = 4, to = 24, by = 2)), ":00:00")
+
+st <- st[as.Date(st$date) < "2015-05-19", ]
+
+dist <- sapply(X = 1:nrow(st), FUN = function(i){
+  distHaversine(c(a, b), c(st$longitude[i], st$latitude[i]))
+})
+
+day_diff <- sapply(X = 1:nrow(st), FUN = function(i){
+  abs(as.POSIXlt(st$date[i])$yday - as.POSIXlt(date)$yday)
+})
+
+hour_diff <- sapply(X = 1:length(times), FUN = function(i){
+  abs(difftime(c(paste0(c("2000-01-01 "), st$time)), c(paste0(c("2000-01-01 "), times[i])), units = "hour"))
+})
+
+# Selecting kernel ####
+# distance plays way less of a role
+h_distance <- 1000
+# season plays a important role since days in winter are often colder than summers
+h_date <- 2
+# nighttime plays some role in the model
+h_time <- 2
+
+temp <- vector(length=length(times))
+
+
+k_dist <- exp(-dist^2/(2*h_distance^2))
+k_date <- exp(-day_diff^2/(2*h_date^2))
+k_time <- exp(-hour_diff^2/(2*h_time^2))
+
+# Kernel 1 ####
+K <- k_dist+k_date+k_time
+
+temp <- sapply(X = 1:ncol(K), FUN = function(i){
+  sum(K[, i]*st$air_temperature)/sum(K[, i])}
+)
+
+
+ggplot(mapping = aes(y = temp, x = seq(from = 4, to = 24, by = 2))) + geom_line(linewidth = 1, col = "darkred") + theme_bw() + xlab("Hour") + geom_point(col = "darkblue", size = 2) + ylab("Estimated temperature") + labs(caption = "Figure 1: Summed kernel")
+# aggregate(st$air_temperature, by = list(substring(st$time, 1, 2)), FUN = mean)
+
+## Table 1 ####
+mean_values <- aggregate(st$air_temperature, by = list(substring(st$time, 1, 2)), FUN = mean)
+
+output <- cbind(mean_values[1:6, ],
+                mean_values[7:12, ],
+                mean_values[13:18, ],
+                mean_values[19:24, ])
+colnames(output) <- rep(c("Hour", "Temperature"), times = 4)
+
+kable(output, caption = "Mean value for all weather measurements", align = "c")
+
+
+# Kernel 2 ####
+K <- k_dist*k_date*k_time
+
+temp <- sapply(X = 1:ncol(K), FUN = function(i){
+  sum(K[, i]*st$air_temperature)/sum(K[, i])}
+)
+
+
+# Students’ code here
+ggplot(mapping = aes(y = temp, x = seq(from = 4, to = 24, by = 2))) + geom_line(linewidth = 1, col = "darkred") + theme_bw() + xlab("Hour") + geom_point(col = "darkblue", size = 2) + ylab("Estimated temperature") + labs(caption = "Figure 2: Product of kernel")
+# Show https://www.vadret1.com/europe/sweden/vastmanland/vasteras?page=past-weather#day=19&month=5
+# st[st$station_name == "Västerås" & month(st$date) == 5, c("station_name", "latitude", "longitude", "date", "time", "air_temperature")]
+# 
+# 
+# st$air_temperature[st$station_name == "Västerås" & month(st$date) == 5]
+# 
+# # Show https://www.vadret1.com/europe/sweden/vastmanland/vasteras?page=past-weather#day=19&month=5
+# aggregate(st$air_temperature[st$station_name == "Västerås" & month(st$date) == 5], by = list(substring(st$time[st$station_name == "Västerås" & month(st$date) == 5], 1, 2)), FUN = mean)
+
+## Table 2 ####
+lat_min <- 59.28
+lat_max <- 59.80
+lon_min <- 15.80
+lon_max <- 17.26
+
+inside <- function(lat, lon) {
+  lat >= lat_min & lat <= lat_max &
+    lon >= lon_min & lon <= lon_max
+}
+
+lon <- st$longitude
+lat <- st$latitude
+
+mean_values <- aggregate(st$air_temperature[inside(lat, lon) & month(st$date) == 5], by = list(substring(st$time[inside(lat, lon) & month(st$date) == 5], 1, 2)), FUN = mean)
+
+output <- cbind(mean_values[1:6, ],
+                mean_values[7:12, ],
+                mean_values[13:18, ],
+                mean_values[19:24, ])
+colnames(output) <- rep(c("Hour", "Temperature"), times = 3)
+
+kable(output, caption = "Mean value for a day, areas around Västerås, May", align = "c")
 ```
